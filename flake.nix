@@ -43,8 +43,13 @@
           cargoLock.lockFile = ./Cargo.lock;
         };
 
+        formatter = pkgs.nixfmt-tree;
+
         devShells.default = pkgs.mkShell {
-          buildInputs = [ rustToolchain ];
+          buildInputs = [
+            rustToolchain
+            pkgs.nixfmt-tree
+          ];
         };
       }
     ))

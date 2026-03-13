@@ -58,7 +58,10 @@ in
   config = lib.mkIf cfg.enable {
     systemd.services.proton-port-sync = {
       description = "ProtonVPN NAT-PMP port sync for qBittorrent";
-      after = [ cfg.wgUnit "qbittorrent.service" ];
+      after = [
+        cfg.wgUnit
+        "qbittorrent.service"
+      ];
       wants = [ "qbittorrent.service" ];
       bindsTo = [ cfg.wgUnit ];
       wantedBy = [ "multi-user.target" ];
