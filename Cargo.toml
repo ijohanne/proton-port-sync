@@ -1,0 +1,17 @@
+[package]
+name = "proton-port-sync"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ian Johannesen <ij@perlpimp.net>"]
+license = "AGPL-3.0-only"
+description = "Syncs ProtonVPN NAT-PMP forwarded port to qBittorrent"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["cookies"] }
+natpmp = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+serde_json = "1"
