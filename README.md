@@ -6,9 +6,17 @@ ProtonVPN assigns dynamic ports via NAT-PMP that change periodically. This servi
 
 ## How it works
 
-1. Requests a TCP port mapping from the ProtonVPN gateway via NAT-PMP
+1. Requests both UDP and TCP port mappings from the ProtonVPN gateway via NAT-PMP (RFC 6886)
 2. When the mapped port changes, updates qBittorrent's listening port through its WebUI API
 3. If NAT-PMP renewals fail repeatedly, restarts the WireGuard interface to recover
+
+### NAT-PMP implementation notes
+
+This project implements the NAT-PMP protocol directly rather than using the `natpmp` Rust crate. Two reasons:
+
+- **Source address binding**: The `natpmp` crate binds its UDP socket to `0.0.0.0:0`. When using policy routing (e.g., table 51820 matching `from 10.2.0.2`), response packets from the gateway aren't routed back to the socket because the kernel doesn't associate the unbound socket with the VPN interface. The `--bind-address` option binds the socket to the WireGuard interface IP directly, ensuring responses traverse the correct routing table.
+
+- **Internal port must be non-zero**: Per RFC 6886, an internal port of 0 in a mapping request means "delete all mappings for this protocol". ProtonVPN expects internal port 1 (the actual value doesn't matter since ProtonVPN assigns ports server-side, but it must be non-zero).
 
 ## Installation (NixOS)
 
@@ -47,6 +55,7 @@ Add the flake to your inputs and enable the module:
 |--------|---------|-------------|
 | `enable` | `false` | Enable the service |
 | `gateway` | `10.2.0.1` | ProtonVPN WireGuard gateway IP |
+| `bindAddress` | `10.2.0.2` | Local IP to bind NAT-PMP socket to (must be on the VPN interface) |
 | `qbtUrl` | `http://127.0.0.1:8080` | qBittorrent WebUI URL |
 | `qbtUser` | `admin` | qBittorrent WebUI username |
 | `qbtPasswordFile` | *(required)* | Path to file containing qBittorrent password |
@@ -62,13 +71,14 @@ Add the flake to your inputs and enable the module:
 ```
 proton-port-sync \
   --gateway 10.2.0.1 \
+  --bind-address 10.2.0.2 \
   --qbt-url http://127.0.0.1:8080 \
   --qbt-user admin \
   --qbt-password-file /path/to/password \
   --metrics-addr 127.0.0.1:9834
 ```
 
-All flags can also be set via environment variables: `NATPMP_GATEWAY`, `QBT_URL`, `QBT_USER`, `QBT_PASSWORD_FILE`, `RENEW_INTERVAL`, `MAX_FAILURES`, `WG_UNIT`, `METRICS_ADDR`.
+All flags can also be set via environment variables: `NATPMP_GATEWAY`, `NATPMP_BIND_ADDRESS`, `QBT_URL`, `QBT_USER`, `QBT_PASSWORD_FILE`, `RENEW_INTERVAL`, `MAX_FAILURES`, `WG_UNIT`, `METRICS_ADDR`.
 
 ## Prometheus metrics
 
