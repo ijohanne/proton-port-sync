@@ -5,6 +5,7 @@ use tracing::debug;
 
 const NATPMP_PORT: u16 = 5351;
 const NATPMP_VERSION: u8 = 0;
+const NATPMP_OP_UDP_MAP: u8 = 1;
 const NATPMP_OP_TCP_MAP: u8 = 2;
 const NATPMP_RESULT_SUCCESS: u16 = 0;
 
@@ -25,18 +26,36 @@ impl NatPmpClient {
     }
 
     pub fn request_mapping(&self, lifetime_secs: u32) -> Result<u16> {
+        let udp_port = self
+            .request_protocol_mapping(NATPMP_OP_UDP_MAP, lifetime_secs)
+            .context("UDP mapping failed")?;
+        let tcp_port = self
+            .request_protocol_mapping(NATPMP_OP_TCP_MAP, lifetime_secs)
+            .context("TCP mapping failed")?;
+
+        if udp_port != tcp_port {
+            debug!(udp_port, tcp_port, "UDP and TCP ports differ, using TCP");
+        }
+
+        Ok(tcp_port)
+    }
+
+    fn request_protocol_mapping(&self, opcode: u8, lifetime_secs: u32) -> Result<u16> {
         let sock = UdpSocket::bind((self.bind_addr, 0))
             .with_context(|| format!("failed to bind UDP socket to {}", self.bind_addr))?;
         sock.connect((self.gateway, NATPMP_PORT))
             .with_context(|| format!("failed to connect to {}:{}", self.gateway, NATPMP_PORT))?;
 
+        let proto = if opcode == NATPMP_OP_TCP_MAP { "TCP" } else { "UDP" };
+
         // NAT-PMP mapping request: version(1) + opcode(1) + reserved(2) + internal_port(2) + external_port(2) + lifetime(4) = 12 bytes
         let mut request = [0u8; 12];
         request[0] = NATPMP_VERSION;
-        request[1] = NATPMP_OP_TCP_MAP;
+        request[1] = opcode;
         // reserved bytes [2..4] = 0
-        // internal_port [4..6] = 0 (let gateway choose)
-        // external_port [6..8] = 0 (let gateway choose)
+        // internal_port = 1 (ProtonVPN requires non-zero; 0 means delete all mappings per RFC 6886)
+        request[4..6].copy_from_slice(&1u16.to_be_bytes());
+        // external_port = 0 (let gateway choose)
         request[8..12].copy_from_slice(&lifetime_secs.to_be_bytes());
 
         // RFC 6886: retry with exponential backoff, initial 250ms, doubling up to 9 times
@@ -46,41 +65,41 @@ impl NatPmpClient {
                 .context("failed to set socket timeout")?;
 
             sock.send(&request).context("failed to send NAT-PMP request")?;
-            debug!(attempt, timeout_ms, "sent NAT-PMP request");
+            debug!(attempt, timeout_ms, proto, "sent NAT-PMP request");
 
             let mut buf = [0u8; 16];
             match sock.recv(&mut buf) {
                 Ok(n) if n >= 16 => {
-                    return Self::parse_response(&buf);
+                    return Self::parse_response(&buf, opcode);
                 }
                 Ok(n) => {
-                    anyhow::bail!("NAT-PMP response too short: {n} bytes");
+                    anyhow::bail!("NAT-PMP {proto} response too short: {n} bytes");
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
                     || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
-                    debug!(attempt, "NAT-PMP response timeout, retrying");
+                    debug!(attempt, proto, "NAT-PMP response timeout, retrying");
                     timeout_ms *= 2;
                 }
                 Err(e) => {
-                    return Err(e).context("failed to receive NAT-PMP response");
+                    return Err(e).context(format!("failed to receive NAT-PMP {proto} response"));
                 }
             }
         }
 
-        anyhow::bail!("NAT-PMP request timed out after 9 attempts")
+        anyhow::bail!("NAT-PMP {proto} request timed out after 9 attempts")
     }
 
-    fn parse_response(buf: &[u8; 16]) -> Result<u16> {
+    fn parse_response(buf: &[u8; 16], expected_opcode: u8) -> Result<u16> {
         // Response: version(1) + opcode(1) + result(2) + epoch(4) + internal_port(2) + external_port(2) + lifetime(4)
+        let opcode = buf[1];
+        if opcode != 128 + expected_opcode {
+            anyhow::bail!("unexpected NAT-PMP response opcode: {opcode}");
+        }
+
         let result_code = u16::from_be_bytes([buf[2], buf[3]]);
         if result_code != NATPMP_RESULT_SUCCESS {
             anyhow::bail!("NAT-PMP error: result code {result_code}");
-        }
-
-        let opcode = buf[1];
-        if opcode != 128 + NATPMP_OP_TCP_MAP {
-            anyhow::bail!("unexpected NAT-PMP response opcode: {opcode}");
         }
 
         let external_port = u16::from_be_bytes([buf[10], buf[11]]);
