@@ -19,6 +19,12 @@ in
       description = "ProtonVPN WireGuard gateway IP";
     };
 
+    bindAddress = lib.mkOption {
+      type = lib.types.str;
+      default = "10.2.0.2";
+      description = "Local IP to bind NAT-PMP UDP socket to (must be on the VPN interface)";
+    };
+
     qbtUrl = lib.mkOption {
       type = lib.types.str;
       default = "http://127.0.0.1:8080";
@@ -90,6 +96,7 @@ in
             wrapper = pkgs.writeShellScript "proton-port-sync" ''
               exec ${lib.getBin package}/bin/proton-port-sync \
                 --gateway ${cfg.gateway} \
+                --bind-address ${cfg.bindAddress} \
                 --qbt-url ${cfg.qbtUrl} \
                 --qbt-user ${cfg.qbtUser} \
                 --qbt-password-file "$CREDENTIALS_DIRECTORY/qbt-password" \

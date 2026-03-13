@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .trim()
         .to_string();
 
-    let natpmp_client = natpmp::NatPmpClient::new(&cfg.gateway)?;
+    let natpmp_client = natpmp::NatPmpClient::new(&cfg.gateway, &cfg.bind_address)?;
     let mut qbt = qbittorrent::QbtClient::new(&cfg.qbt_url, &cfg.qbt_user, &password);
 
     let prom = if let Some(ref addr_str) = cfg.metrics_addr {
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
     let mut current_port: Option<u16> = None;
     let mut fail_count: u32 = 0;
 
-    info!(gateway = %cfg.gateway, "starting port sync loop");
+    info!(gateway = %cfg.gateway, bind_address = %cfg.bind_address, "starting port sync loop");
 
     loop {
         match natpmp_client.request_mapping(60) {

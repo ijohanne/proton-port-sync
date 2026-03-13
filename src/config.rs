@@ -10,6 +10,9 @@ pub struct Config {
     #[arg(long, env = "NATPMP_GATEWAY", default_value = "10.2.0.1")]
     pub gateway: String,
 
+    #[arg(long, env = "NATPMP_BIND_ADDRESS", default_value = "10.2.0.2")]
+    pub bind_address: String,
+
     #[arg(long, env = "QBT_URL", default_value = "http://127.0.0.1:8080")]
     pub qbt_url: String,
 
