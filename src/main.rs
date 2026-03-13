@@ -1,4 +1,5 @@
 mod config;
+mod metrics;
 mod natpmp;
 mod qbittorrent;
 
@@ -26,6 +27,22 @@ async fn main() -> Result<()> {
     let natpmp_client = natpmp::NatPmpClient::new(&cfg.gateway)?;
     let mut qbt = qbittorrent::QbtClient::new(&cfg.qbt_url, &cfg.qbt_user, &password);
 
+    let prom = if let Some(ref addr_str) = cfg.metrics_addr {
+        let m = metrics::Metrics::new()?;
+        let addr: std::net::SocketAddr = addr_str
+            .parse()
+            .with_context(|| format!("invalid metrics address: {addr_str}"))?;
+        let serve_metrics = m.clone();
+        tokio::spawn(async move {
+            if let Err(e) = metrics::serve(serve_metrics, addr).await {
+                error!(?e, "metrics server failed");
+            }
+        });
+        Some(m)
+    } else {
+        None
+    };
+
     let mut current_port: Option<u16> = None;
     let mut fail_count: u32 = 0;
 
@@ -35,6 +52,9 @@ async fn main() -> Result<()> {
         match natpmp_client.request_mapping(60) {
             Ok(port) => {
                 fail_count = 0;
+                if let Some(ref m) = prom {
+                    m.renewals_total.inc();
+                }
 
                 if current_port != Some(port) {
                     info!(port, "NAT-PMP port mapped");
@@ -43,6 +63,9 @@ async fn main() -> Result<()> {
                         Ok(()) => {
                             info!(port, "qBittorrent listening port updated");
                             current_port = Some(port);
+                            if let Some(ref m) = prom {
+                                m.record_port_change(port);
+                            }
                         }
                         Err(e) => {
                             error!(?e, "failed to update qBittorrent port");
@@ -52,6 +75,9 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 fail_count += 1;
+                if let Some(ref m) = prom {
+                    m.failures_total.inc();
+                }
                 warn!(?e, fail_count, "NAT-PMP renewal failed");
 
                 if fail_count >= cfg.max_failures {
@@ -62,7 +88,12 @@ async fn main() -> Result<()> {
                         .status();
 
                     match status {
-                        Ok(s) if s.success() => info!("WireGuard restarted successfully"),
+                        Ok(s) if s.success() => {
+                            info!("WireGuard restarted successfully");
+                            if let Some(ref m) = prom {
+                                m.wg_restarts_total.inc();
+                            }
+                        }
                         Ok(s) => error!(?s, "WireGuard restart exited non-zero"),
                         Err(e) => error!(?e, "failed to run systemctl"),
                     }

@@ -27,4 +27,7 @@ pub struct Config {
 
     #[arg(long, env = "WG_UNIT", default_value = "wireguard-wg0.service")]
     pub wg_unit: String,
+
+    #[arg(long, env = "METRICS_ADDR")]
+    pub metrics_addr: Option<String>,
 }

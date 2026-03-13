@@ -53,6 +53,22 @@ in
       default = "wireguard-wg0.service";
       description = "WireGuard systemd unit to restart on failure";
     };
+
+    metrics = {
+      enable = lib.mkEnableOption "Prometheus metrics endpoint";
+
+      address = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1";
+        description = "Address to bind the metrics HTTP server to";
+      };
+
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 9834;
+        description = "Port for the metrics HTTP server";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -69,6 +85,8 @@ in
       serviceConfig = {
         ExecStart =
           let
+            metricsFlag = lib.optionalString cfg.metrics.enable
+              "--metrics-addr ${cfg.metrics.address}:${toString cfg.metrics.port}";
             wrapper = pkgs.writeShellScript "proton-port-sync" ''
               exec ${lib.getBin package}/bin/proton-port-sync \
                 --gateway ${cfg.gateway} \
@@ -77,7 +95,8 @@ in
                 --qbt-password-file "$CREDENTIALS_DIRECTORY/qbt-password" \
                 --renew-interval ${toString cfg.renewInterval} \
                 --max-failures ${toString cfg.maxFailures} \
-                --wg-unit ${cfg.wgUnit}
+                --wg-unit ${cfg.wgUnit} \
+                ${metricsFlag}
             '';
           in
           toString wrapper;
