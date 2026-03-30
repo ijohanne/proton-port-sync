@@ -7,7 +7,7 @@ self:
 }:
 let
   cfg = config.services.proton-port-sync;
-  package = self.packages.${pkgs.system}.default;
+  package = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 {
   options.services.proton-port-sync = {
